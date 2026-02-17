@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Bhiduu - The Savage Reply AI",
+  "description": "A multi-personality AI chatbot that generates savage comebacks, movie-style dialogues, and Gen-Z roasts with controlled aggression levels.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

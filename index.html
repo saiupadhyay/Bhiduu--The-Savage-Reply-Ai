@@ -1,0 +1,104 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bhiduu - Savage AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #050505;
+            color: #ffffff;
+            overflow: hidden;
+        }
+        .bangers {
+            font-family: 'Bangers', cursive;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .glass {
+            background: rgba(15, 15, 20, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .mood-glow {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at center, var(--mood-color, #ff450033) 0%, transparent 70%);
+            z-index: -1;
+            transition: background 1s ease;
+            pointer-events: none;
+        }
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        .animate-shimmer {
+            animation: shimmer 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { height: 2px; }
+            50% { height: 10px; }
+        }
+        @keyframes shake-slow {
+          0% { transform: translate(1px, 1px) rotate(0deg); }
+          10% { transform: translate(-1px, -1px) rotate(-0.5deg); }
+          20% { transform: translate(-1px, 0px) rotate(0.5deg); }
+          30% { transform: translate(1px, 1px) rotate(0deg); }
+          40% { transform: translate(1px, -1px) rotate(0.5deg); }
+          50% { transform: translate(-1px, 1px) rotate(-0.5deg); }
+          60% { transform: translate(-1px, 1px) rotate(0deg); }
+          70% { transform: translate(1px, 1px) rotate(-0.5deg); }
+          80% { transform: translate(-1px, -1px) rotate(0.5deg); }
+          90% { transform: translate(1px, 1px) rotate(0deg); }
+          100% { transform: translate(1px, -1px) rotate(-0.5deg); }
+        }
+        .shake-slow {
+          animation: shake-slow 4s infinite linear;
+        }
+        .neon-glow {
+            text-shadow: 0 0 10px rgba(255,255,255,0.5), 0 0 20px rgba(52, 211, 153, 0.3);
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div class="mood-glow" id="bg-glow"></div>
+    <div id="root"></div>
+</body>
+</html>
