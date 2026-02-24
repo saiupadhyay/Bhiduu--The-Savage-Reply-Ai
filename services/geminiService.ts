@@ -7,12 +7,12 @@ export class GeminiService {
   private ai: GoogleGenAI;
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    this.ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
   }
 
   async generateReply(params: GenerationParams) {
     const { message, persona, aggression, history } = params;
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
     
     const contents = history.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
