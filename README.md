@@ -1,6 +1,4 @@
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/drive/18r_77MYRlN8G4HC1gwqZGkIZH6WKbndr
+Live at -> bhiduuu.netlify.app
 
 ## Run Locally
 
