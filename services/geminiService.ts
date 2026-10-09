@@ -118,7 +118,14 @@ export class BackendApiService {
     if (apiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey });
-        const voiceName = 'Charon'; // Always deep, masculine male voice for every chat
+        let voiceName = 'Charon';
+        if (persona === Persona.CORPORATE) {
+          voiceName = 'Zephyr'; // Slick, decent corporate tone
+        } else if (persona === Persona.RAP_BATTLE || persona === Persona.GEN_Z) {
+          voiceName = 'Puck'; // Thin, energetic tapori / youth
+        } else {
+          voiceName = 'Charon'; // Bollywood hero / villain deep baritone
+        }
 
         const response = await ai.models.generateContent({
           model: "gemini-3.8-flash-lite-tts",
@@ -248,7 +255,11 @@ export const decodeBase64Audio = (base64: string) => {
   return bytes;
 };
 
-export const playAudio = async (bytes: Uint8Array, onEnd?: () => void) => {
+export const playAudio = async (
+  bytes: Uint8Array,
+  persona?: Persona,
+  onEnd?: () => void
+) => {
   const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
   const dataInt16 = new Int16Array(bytes.buffer);
   const frameCount = dataInt16.length;
@@ -259,7 +270,25 @@ export const playAudio = async (bytes: Uint8Array, onEnd?: () => void) => {
   }
   const source = ctx.createBufferSource();
   source.buffer = buffer;
-  source.playbackRate.value = 0.88; // Slower, relaxed speaking speed
+
+  // Custom playback speed & pitch tailored to each character:
+  // - Corporate: 0.94 (slick, decent, measured Bangalore tech pace)
+  // - Rap Battle: 1.15 (thin, energetic Mumbai tapori flow)
+  // - Gen-Z: 1.08 (fast, snarky South Delhi teen)
+  // - Villain: 0.82 (chilling, slow theatrical Bollywood villain)
+  // - Bollywood Hero: 0.88 (slow, relaxed Jackie Shroff swagger)
+  let rate = 0.88;
+  if (persona === Persona.CORPORATE) {
+    rate = 0.94;
+  } else if (persona === Persona.RAP_BATTLE) {
+    rate = 1.15;
+  } else if (persona === Persona.GEN_Z) {
+    rate = 1.08;
+  } else if (persona === Persona.VILLAIN) {
+    rate = 0.82;
+  }
+  source.playbackRate.value = rate;
+
   source.connect(ctx.destination);
   source.onended = () => {
     if (onEnd) onEnd();
@@ -283,24 +312,46 @@ export const speakWithBrowser = (
   const utterance = new SpeechSynthesisUtterance(text);
 
   const voices = window.speechSynthesis.getVoices();
-  // Filter for male Indian voices or male English voices first (avoid female default voices)
-  const maleVoice =
-    voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female') && !v.name.toLowerCase().includes('kalpana') && !v.name.toLowerCase().includes('heera')) ||
-    voices.find(v => v.lang === 'en-IN' && !v.name.toLowerCase().includes('female')) ||
-    voices.find(v => v.lang === 'hi-IN') ||
-    voices.find(v => v.lang === 'en-IN') ||
-    null;
+  const isCorporateOrGenZ = persona === Persona.CORPORATE || persona === Persona.GEN_Z;
 
-  if (maleVoice) {
-    utterance.voice = maleVoice;
+  // For Corporate/South Delhi, prefer English (India) or clean Hindi
+  // For Bollywood/Villain/Rap Battle, prefer Hindi (India)
+  const preferredVoice = isCorporateOrGenZ
+    ? voices.find(v => v.lang === 'en-IN' && !v.name.toLowerCase().includes('female')) ||
+      voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female')) ||
+      voices.find(v => v.lang === 'en-IN') ||
+      voices.find(v => v.lang === 'hi-IN')
+    : voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female')) ||
+      voices.find(v => v.lang === 'hi-IN') ||
+      voices.find(v => v.lang === 'en-IN');
+
+  if (preferredVoice) {
+    utterance.voice = preferredVoice;
   }
-  utterance.lang = maleVoice ? maleVoice.lang : 'hi-IN';
+  utterance.lang = preferredVoice ? preferredVoice.lang : (isCorporateOrGenZ ? 'en-IN' : 'hi-IN');
 
-  // Force deep masculine male pitch (0.75 lowers any voice to deep male tone)
-  utterance.pitch = 0.75;
-
-  // Slow, relaxed speaking speed
-  utterance.rate = 0.82;
+  // Pitch and speed tailored to each character:
+  if (persona === Persona.CORPORATE) {
+    // Bangalore tech executive: slick, decent, mid-tone, steady pace
+    utterance.pitch = 0.95;
+    utterance.rate = 0.90;
+  } else if (persona === Persona.RAP_BATTLE) {
+    // Mumbai gully rap battle: full tapori, thin voice, rapid delivery
+    utterance.pitch = 1.25;
+    utterance.rate = 1.18;
+  } else if (persona === Persona.GEN_Z) {
+    // South Delhi kid: snarky, high-energy, animated teen accent
+    utterance.pitch = 1.15;
+    utterance.rate = 1.08;
+  } else if (persona === Persona.VILLAIN) {
+    // Bollywood villain actor: theatrical, deep menacing bass, slow chilling delivery
+    utterance.pitch = 0.65;
+    utterance.rate = 0.80;
+  } else {
+    // Bollywood Hero (Jackie Shroff): deep husky baritone, slow Bambaiya swagger
+    utterance.pitch = 0.72;
+    utterance.rate = 0.85;
+  }
 
   utterance.onend = () => {
     if (onEnd) onEnd();

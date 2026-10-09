@@ -89,8 +89,22 @@ class GeminiService:
             else "with a sharp, witty, and slightly mocking street-smart tone"
         )
 
-        # Always use Charon: deep, authoritative, masculine male voice for every chat
-        voice_name = "Charon"
+        # Select voice artist matching each chatbot character
+        if persona == Persona.CORPORATE:
+            # Slick, decent, polite Bangalore corporate male executive
+            voice_name = "Zephyr"
+        elif persona == Persona.RAP_BATTLE:
+            # Thin, energetic local Mumbai tapori battle rapper
+            voice_name = "Puck"
+        elif persona == Persona.GEN_Z:
+            # Sarcastic, animated South Delhi kid
+            voice_name = "Puck"
+        elif persona == Persona.VILLAIN:
+            # Deep, cold, menacing classic Bollywood villain actor
+            voice_name = "Charon"
+        else:
+            # Bollywood Hero: Legendary Jackie Shroff deep husky baritone
+            voice_name = "Charon"
 
         # Pass ONLY the actual message text to synthesize (never prompt instructions)
         clean_text = text.strip()

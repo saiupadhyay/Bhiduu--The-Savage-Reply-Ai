@@ -34,7 +34,7 @@ const ChatMessage: React.FC<Props> = ({ message, isLast }) => {
       );
       if (base64) {
         const bytes = decodeBase64Audio(base64);
-        await playAudio(bytes, () => setIsSpeaking(false));
+        await playAudio(bytes, message.persona || Persona.BOLLYWOOD, () => setIsSpeaking(false));
       } else {
         // Fallback to browser speech synthesis if Gemini TTS quota is reached
         speakWithBrowser(
