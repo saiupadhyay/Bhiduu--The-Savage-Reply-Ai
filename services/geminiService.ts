@@ -2,164 +2,196 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { GenerationParams, Persona, ChatMessage } from "../types";
 import { GET_SYSTEM_PROMPT } from "../constants";
 
-const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
-const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY || '';
+const getApiKey = (): string => {
+  return (
+    import.meta.env.VITE_API_KEY ||
+    import.meta.env.VITE_GEMINI_API_KEY ||
+    (typeof process !== 'undefined' && (process.env?.GEMINI_API_KEY || process.env?.API_KEY)) ||
+    ''
+  );
+};
+
+const getBackendUrl = (): string => {
+  return (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+};
+
+const shouldCallBackend = (): boolean => {
+  const customUrl = getBackendUrl();
+  if (customUrl) return true;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return true; // Local dev with Vite proxy to port 8000
+    }
+  }
+  return false; // Static hosting like Netlify
+};
 
 export class BackendApiService {
-  private baseUrl = `${BACKEND_URL}/api`;
+  private get baseUrl(): string {
+    const backend = getBackendUrl();
+    return backend ? `${backend}/api` : '/api';
+  }
 
   async generateReply(params: GenerationParams): Promise<string> {
     const { message, persona, aggression, history } = params;
-    
-    // 1. Try Python FastAPI backend
-    try {
-      const response = await fetch(`${this.baseUrl}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          persona,
-          aggression,
-          history: history.map(msg => ({ role: msg.role, content: msg.content }))
-        })
-      });
 
-      const contentType = response.headers.get("content-type");
-      if (response.ok && contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        return data.reply || "I'm literally speechless. That doesn't happen often.";
-      }
-      throw new Error(`Server returned ${response.status}`);
-    } catch (error) {
-      console.warn("Backend API unavailable, attempting client fallback:", error);
+    // 1. If running locally or with a dedicated backend, try the Python server
+    if (shouldCallBackend()) {
+      try {
+        const response = await fetch(`${this.baseUrl}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            persona,
+            aggression,
+            history: history.map(msg => ({ role: msg.role, content: msg.content }))
+          })
+        });
 
-      // 2. Client-side fallback for static deployments (like Netlify)
-      if (API_KEY) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: API_KEY });
-          const contents = history.map(msg => ({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-          }));
-          contents.push({ role: 'user', parts: [{ text: message }] });
-
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents,
-            config: {
-              systemInstruction: GET_SYSTEM_PROMPT(persona, aggression),
-              temperature: Math.min(1.3, 0.8 + (aggression * 0.1)),
-              topP: 0.95,
-            }
-          });
-          return response.text || "I'm literally speechless. That doesn't happen often.";
-        } catch (clientErr) {
-          console.error("Client GenAI Error:", clientErr);
+        const contentType = response.headers.get("content-type");
+        if (response.ok && contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          return data.reply || "I'm literally speechless. That doesn't happen often.";
         }
+      } catch (backendError) {
+        console.warn("Backend error, falling back to client GenAI:", backendError);
       }
-
-      return "Safety filter ya network error ho gaya bhidu! Make sure backend is running or API key is set.";
     }
+
+    // 2. Direct client-side Gemini call (used for Netlify static deployment or fallback)
+    const apiKey = getApiKey();
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        const contents = history.map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'model',
+          parts: [{ text: msg.content }]
+        }));
+        contents.push({ role: 'user', parts: [{ text: message }] });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents,
+          config: {
+            systemInstruction: GET_SYSTEM_PROMPT(persona, aggression),
+            temperature: Math.min(1.3, 0.8 + (aggression * 0.1)),
+            topP: 0.95,
+          }
+        });
+
+        return response.text || "I'm literally speechless. That doesn't happen often.";
+      } catch (clientErr) {
+        console.error("Client GenAI Error:", clientErr);
+        return "Safety filter kicked in. Savage? Yes. Problematic? Never.";
+      }
+    }
+
+    return "Bhidu, Netlify par GEMINI_API_KEY (ya VITE_API_KEY) set nahi mili! Please Netlify dashboard mein Environment Variables check karo aur re-deploy karo.";
   }
 
   async speakText(text: string, persona: Persona, aggression: number = 3): Promise<string | null> {
     const cleanText = text.trim();
 
-    // 1. Try Python FastAPI backend
-    try {
-      const response = await fetch(`${this.baseUrl}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: cleanText, persona, aggression })
-      });
+    // 1. If backend is available, try Python TTS
+    if (shouldCallBackend()) {
+      try {
+        const response = await fetch(`${this.baseUrl}/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: cleanText, persona, aggression })
+        });
 
-      const contentType = response.headers.get("content-type");
-      if (response.ok && contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data.audio_base64) return data.audio_base64;
+        const contentType = response.headers.get("content-type");
+        if (response.ok && contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          if (data.audio_base64) return data.audio_base64;
+        }
+      } catch (backendError) {
+        console.warn("Backend TTS failed, falling back:", backendError);
       }
-      throw new Error("Backend TTS returned non-JSON or empty");
-    } catch (e) {
-      console.warn("Backend TTS unavailable, attempting client-side GenAI TTS:", e);
+    }
 
-      // 2. Client-side fallback for static deployments
-      if (API_KEY) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: API_KEY });
-          const voiceName = (persona === Persona.BOLLYWOOD || persona === Persona.VILLAIN || persona === Persona.CORPORATE)
-            ? 'Charon'
-            : 'Puck';
+    // 2. Direct client-side Gemini TTS
+    const apiKey = getApiKey();
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        const voiceName = (persona === Persona.BOLLYWOOD || persona === Persona.VILLAIN || persona === Persona.CORPORATE)
+          ? 'Charon'
+          : 'Puck';
 
-          const response = await ai.models.generateContent({
-            model: "gemini-3.8-flash-lite-tts",
-            contents: [{ parts: [{ text: cleanText }] }],
-            config: {
-              responseModalities: [Modality.AUDIO],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName },
-                },
+        const response = await ai.models.generateContent({
+          model: "gemini-3.8-flash-lite-tts",
+          contents: [{ parts: [{ text: cleanText }] }],
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName },
               },
             },
-          });
-          return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-        } catch (ttsErr) {
-          console.warn("Client GenAI TTS unavailable, will use browser speech:", ttsErr);
-        }
+          },
+        });
+        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+      } catch (ttsErr) {
+        console.warn("Client GenAI TTS unavailable, will fall back to browser speech:", ttsErr);
       }
-
-      return null;
     }
+
+    return null;
   }
 
   async generateMeme(text: string, persona: Persona): Promise<string | null> {
-    // 1. Try Python FastAPI backend
-    try {
-      const response = await fetch(`${this.baseUrl}/meme`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, persona })
-      });
+    if (shouldCallBackend()) {
+      try {
+        const response = await fetch(`${this.baseUrl}/meme`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, persona })
+        });
 
-      const contentType = response.headers.get("content-type");
-      if (response.ok && contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data.image_url) return data.image_url;
-      }
-      throw new Error("Backend Meme returned non-JSON or empty");
-    } catch (error) {
-      console.warn("Backend Meme unavailable, attempting client fallback:", error);
-
-      // 2. Client-side fallback
-      if (API_KEY) {
-        try {
-          const ai = new GoogleGenAI({ apiKey: API_KEY });
-          const prompt = `Create a funny meme image for this savage roast: "${text}". 
-          The style should be bold, cinematic, and relatable to Indian pop culture. 
-          Persona of the roaster is ${persona}. 
-          Make it look like a viral social media meme card with high-quality 3D characters or expressive faces.`;
-
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: prompt }] },
-            config: { imageConfig: { aspectRatio: "1:1" } }
-          });
-
-          for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-              return `data:image/png;base64,${part.inlineData.data}`;
-            }
-          }
-        } catch (mErr) {
-          console.error("Client Meme Error:", mErr);
+        const contentType = response.headers.get("content-type");
+        if (response.ok && contentType && contentType.includes("application/json")) {
+          const data = await response.json();
+          if (data.image_url) return data.image_url;
         }
+      } catch (backendError) {
+        console.warn("Backend Meme failed, falling back:", backendError);
       }
-
-      return null;
     }
+
+    const apiKey = getApiKey();
+    if (apiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey });
+        const prompt = `Create a funny meme image for this savage roast: "${text}". 
+        The style should be bold, cinematic, and relatable to Indian pop culture. 
+        Persona of the roaster is ${persona}. 
+        Make it look like a viral social media meme card with high-quality 3D characters or expressive faces.`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: { parts: [{ text: prompt }] },
+          config: { imageConfig: { aspectRatio: "1:1" } }
+        });
+
+        for (const part of response.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData) {
+            return `data:image/png;base64,${part.inlineData.data}`;
+          }
+        }
+      } catch (mErr) {
+        console.error("Client Meme Error:", mErr);
+      }
+    }
+
+    return null;
   }
 
   async getHistory(persona: Persona): Promise<ChatMessage[]> {
+    if (!shouldCallBackend()) return [];
     try {
       const response = await fetch(`${this.baseUrl}/history/${encodeURIComponent(persona)}`);
       const contentType = response.headers.get("content-type");
@@ -175,31 +207,33 @@ export class BackendApiService {
         }));
       }
       return [];
-    } catch (e) {
+    } catch {
       return [];
     }
   }
 
   async clearHistory(persona: Persona): Promise<boolean> {
+    if (!shouldCallBackend()) return true;
     try {
       const response = await fetch(`${this.baseUrl}/history/${encodeURIComponent(persona)}`, {
         method: 'DELETE'
       });
       return response.ok;
-    } catch (e) {
+    } catch {
       return false;
     }
   }
 
   async saveBurnCard(card: { id?: string; persona: Persona; content: string; aggression: number }) {
+    if (!shouldCallBackend()) return;
     try {
       await fetch(`${this.baseUrl}/burn-cards`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(card)
       });
-    } catch (e) {
-      // Safe ignore for offline
+    } catch {
+      // Safe ignore
     }
   }
 }
