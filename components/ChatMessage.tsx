@@ -27,16 +27,24 @@ const ChatMessage: React.FC<Props> = ({ message, isLast }) => {
     if (isSpeaking) return;
     setIsSpeaking(true);
     try {
-      const base64 = await geminiService.speakText(
+      const audioResult = await geminiService.speakText(
         message.content, 
         message.persona || Persona.BOLLYWOOD,
         message.aggression || 3
       );
-      if (base64) {
-        const bytes = decodeBase64Audio(base64);
-        await playAudio(bytes, message.persona || Persona.BOLLYWOOD, () => setIsSpeaking(false));
+      if (audioResult) {
+        if (audioResult.startsWith('data:audio/')) {
+          const audio = new Audio(audioResult);
+          audio.playbackRate = message.persona === Persona.RAP_BATTLE ? 1.05 : 0.88;
+          audio.onended = () => setIsSpeaking(false);
+          audio.onerror = () => setIsSpeaking(false);
+          await audio.play();
+        } else {
+          const bytes = decodeBase64Audio(audioResult);
+          await playAudio(bytes, message.persona || Persona.BOLLYWOOD, () => setIsSpeaking(false));
+        }
       } else {
-        // Fallback to browser speech synthesis if Gemini TTS quota is reached
+        // Fallback to browser speech synthesis if online TTS is unavailable
         speakWithBrowser(
           message.content,
           message.persona || Persona.BOLLYWOOD,

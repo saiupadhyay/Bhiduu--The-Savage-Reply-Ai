@@ -11,6 +11,14 @@ const getApiKey = (): string => {
   );
 };
 
+const getOpenAiKey = (): string => {
+  return (
+    import.meta.env.VITE_OPENAI_API_KEY ||
+    (typeof process !== 'undefined' && process.env?.VITE_OPENAI_API_KEY) ||
+    ''
+  );
+};
+
 const getBackendUrl = (): string => {
   return (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
 };
@@ -94,7 +102,43 @@ export class BackendApiService {
   async speakText(text: string, persona: Persona, aggression: number = 3): Promise<string | null> {
     const cleanText = text.trim();
 
-    // 1. If backend is available, try Python TTS
+    // 1. If OpenAI API key is present, use studio-quality OpenAI TTS (tts-1) with male voices
+    const openAiKey = getOpenAiKey();
+    if (openAiKey) {
+      try {
+        const voice = (persona === Persona.RAP_BATTLE || persona === Persona.GEN_Z) ? 'echo' : 'onyx';
+        const speed = (persona === Persona.RAP_BATTLE) ? 1.05 : 0.88;
+        const res = await fetch('https://api.openai.com/v1/audio/speech', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openAiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'tts-1',
+            voice,
+            input: cleanText,
+            speed
+          })
+        });
+
+        if (res.ok) {
+          const blob = await res.blob();
+          const reader = new FileReader();
+          return new Promise<string | null>((resolve) => {
+            reader.onloadend = () => {
+              resolve(reader.result as string); // data:audio/mpeg;base64,...
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        }
+      } catch (openAiErr) {
+        console.warn("OpenAI TTS failed, trying next provider:", openAiErr);
+      }
+    }
+
+    // 2. If backend is available, try Python TTS
     if (shouldCallBackend()) {
       try {
         const response = await fetch(`${this.baseUrl}/tts`, {
@@ -113,7 +157,7 @@ export class BackendApiService {
       }
     }
 
-    // 2. Direct client-side Gemini TTS
+    // 3. Direct client-side Gemini TTS
     const apiKey = getApiKey();
     if (apiKey) {
       try {
