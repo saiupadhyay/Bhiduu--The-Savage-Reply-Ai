@@ -1,11 +1,17 @@
-
+import { GoogleGenAI, Modality } from "@google/genai";
 import { GenerationParams, Persona, ChatMessage } from "../types";
+import { GET_SYSTEM_PROMPT } from "../constants";
+
+const BACKEND_URL = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || import.meta.env.VITE_API_KEY || '';
 
 export class BackendApiService {
-  private baseUrl = '/api';
+  private baseUrl = `${BACKEND_URL}/api`;
 
   async generateReply(params: GenerationParams): Promise<string> {
     const { message, persona, aggression, history } = params;
+    
+    // 1. Try Python FastAPI backend
     try {
       const response = await fetch(`${this.baseUrl}/chat`, {
         method: 'POST',
@@ -18,36 +24,96 @@ export class BackendApiService {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+      const contentType = response.headers.get("content-type");
+      if (response.ok && contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        return data.reply || "I'm literally speechless. That doesn't happen often.";
+      }
+      throw new Error(`Server returned ${response.status}`);
+    } catch (error) {
+      console.warn("Backend API unavailable, attempting client fallback:", error);
+
+      // 2. Client-side fallback for static deployments (like Netlify)
+      if (API_KEY) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: API_KEY });
+          const contents = history.map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
+          }));
+          contents.push({ role: 'user', parts: [{ text: message }] });
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents,
+            config: {
+              systemInstruction: GET_SYSTEM_PROMPT(persona, aggression),
+              temperature: Math.min(1.3, 0.8 + (aggression * 0.1)),
+              topP: 0.95,
+            }
+          });
+          return response.text || "I'm literally speechless. That doesn't happen often.";
+        } catch (clientErr) {
+          console.error("Client GenAI Error:", clientErr);
+        }
       }
 
-      const data = await response.json();
-      return data.reply || "I'm literally speechless. That doesn't happen often.";
-    } catch (error) {
-      console.error("Backend API Error:", error);
-      return "Safety filter ya network error ho gaya bhidu! Check if Python backend is running.";
+      return "Safety filter ya network error ho gaya bhidu! Make sure backend is running or API key is set.";
     }
   }
 
   async speakText(text: string, persona: Persona, aggression: number = 3): Promise<string | null> {
+    const cleanText = text.trim();
+
+    // 1. Try Python FastAPI backend
     try {
       const response = await fetch(`${this.baseUrl}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, persona, aggression })
+        body: JSON.stringify({ text: cleanText, persona, aggression })
       });
 
-      if (!response.ok) return null;
-      const data = await response.json();
-      return data.audio_base64 || null;
+      const contentType = response.headers.get("content-type");
+      if (response.ok && contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data.audio_base64) return data.audio_base64;
+      }
+      throw new Error("Backend TTS returned non-JSON or empty");
     } catch (e) {
-      console.error("TTS API Error", e);
+      console.warn("Backend TTS unavailable, attempting client-side GenAI TTS:", e);
+
+      // 2. Client-side fallback for static deployments
+      if (API_KEY) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: API_KEY });
+          const voiceName = (persona === Persona.BOLLYWOOD || persona === Persona.VILLAIN || persona === Persona.CORPORATE)
+            ? 'Charon'
+            : 'Puck';
+
+          const response = await ai.models.generateContent({
+            model: "gemini-3.8-flash-lite-tts",
+            contents: [{ parts: [{ text: cleanText }] }],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
+              },
+            },
+          });
+          return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+        } catch (ttsErr) {
+          console.warn("Client GenAI TTS unavailable, will use browser speech:", ttsErr);
+        }
+      }
+
       return null;
     }
   }
 
   async generateMeme(text: string, persona: Persona): Promise<string | null> {
+    // 1. Try Python FastAPI backend
     try {
       const response = await fetch(`${this.baseUrl}/meme`, {
         method: 'POST',
@@ -55,11 +121,40 @@ export class BackendApiService {
         body: JSON.stringify({ text, persona })
       });
 
-      if (!response.ok) return null;
-      const data = await response.json();
-      return data.image_url || null;
+      const contentType = response.headers.get("content-type");
+      if (response.ok && contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data.image_url) return data.image_url;
+      }
+      throw new Error("Backend Meme returned non-JSON or empty");
     } catch (error) {
-      console.error("Meme API Error:", error);
+      console.warn("Backend Meme unavailable, attempting client fallback:", error);
+
+      // 2. Client-side fallback
+      if (API_KEY) {
+        try {
+          const ai = new GoogleGenAI({ apiKey: API_KEY });
+          const prompt = `Create a funny meme image for this savage roast: "${text}". 
+          The style should be bold, cinematic, and relatable to Indian pop culture. 
+          Persona of the roaster is ${persona}. 
+          Make it look like a viral social media meme card with high-quality 3D characters or expressive faces.`;
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: { parts: [{ text: prompt }] },
+            config: { imageConfig: { aspectRatio: "1:1" } }
+          });
+
+          for (const part of response.candidates?.[0]?.content?.parts || []) {
+            if (part.inlineData) {
+              return `data:image/png;base64,${part.inlineData.data}`;
+            }
+          }
+        } catch (mErr) {
+          console.error("Client Meme Error:", mErr);
+        }
+      }
+
       return null;
     }
   }
@@ -67,18 +162,20 @@ export class BackendApiService {
   async getHistory(persona: Persona): Promise<ChatMessage[]> {
     try {
       const response = await fetch(`${this.baseUrl}/history/${encodeURIComponent(persona)}`);
-      if (!response.ok) return [];
-      const data = await response.json();
-      return (data.messages || []).map((m: any) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        timestamp: m.timestamp,
-        persona: m.persona as Persona,
-        aggression: m.aggression
-      }));
+      const contentType = response.headers.get("content-type");
+      if (response.ok && contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        return (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+          persona: m.persona as Persona,
+          aggression: m.aggression
+        }));
+      }
+      return [];
     } catch (e) {
-      console.error("Get History Error", e);
       return [];
     }
   }
@@ -90,7 +187,6 @@ export class BackendApiService {
       });
       return response.ok;
     } catch (e) {
-      console.error("Clear History Error", e);
       return false;
     }
   }
@@ -103,7 +199,7 @@ export class BackendApiService {
         body: JSON.stringify(card)
       });
     } catch (e) {
-      console.error("Save Burn Card Error", e);
+      // Safe ignore for offline
     }
   }
 }
