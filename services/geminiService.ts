@@ -118,9 +118,7 @@ export class BackendApiService {
     if (apiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey });
-        const voiceName = (persona === Persona.BOLLYWOOD || persona === Persona.VILLAIN || persona === Persona.CORPORATE)
-          ? 'Charon'
-          : 'Puck';
+        const voiceName = 'Charon'; // Always deep, masculine male voice for every chat
 
         const response = await ai.models.generateContent({
           model: "gemini-3.8-flash-lite-tts",
@@ -261,6 +259,7 @@ export const playAudio = async (bytes: Uint8Array, onEnd?: () => void) => {
   }
   const source = ctx.createBufferSource();
   source.buffer = buffer;
+  source.playbackRate.value = 0.88; // Slower, relaxed speaking speed
   source.connect(ctx.destination);
   source.onended = () => {
     if (onEnd) onEnd();
@@ -284,31 +283,24 @@ export const speakWithBrowser = (
   const utterance = new SpeechSynthesisUtterance(text);
 
   const voices = window.speechSynthesis.getVoices();
-  const indianVoice =
+  // Filter for male Indian voices or male English voices first (avoid female default voices)
+  const maleVoice =
+    voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female') && !v.name.toLowerCase().includes('kalpana') && !v.name.toLowerCase().includes('heera')) ||
+    voices.find(v => v.lang === 'en-IN' && !v.name.toLowerCase().includes('female')) ||
     voices.find(v => v.lang === 'hi-IN') ||
-    voices.find(v => v.lang.startsWith('hi')) ||
     voices.find(v => v.lang === 'en-IN') ||
     null;
 
-  if (indianVoice) {
-    utterance.voice = indianVoice;
+  if (maleVoice) {
+    utterance.voice = maleVoice;
   }
-  utterance.lang = indianVoice ? indianVoice.lang : 'hi-IN';
+  utterance.lang = maleVoice ? maleVoice.lang : 'hi-IN';
 
-  // Customize pitch and rate according to persona & aggression
-  if (persona === Persona.BOLLYWOOD || persona === Persona.VILLAIN) {
-    utterance.pitch = 0.8;
-    utterance.rate = aggression >= 4 ? 1.05 : 0.95;
-  } else if (persona === Persona.GEN_Z) {
-    utterance.pitch = 1.15;
-    utterance.rate = 1.15;
-  } else if (persona === Persona.RAP_BATTLE) {
-    utterance.pitch = 1.0;
-    utterance.rate = 1.25;
-  } else {
-    utterance.pitch = 0.95;
-    utterance.rate = 1.0;
-  }
+  // Force deep masculine male pitch (0.75 lowers any voice to deep male tone)
+  utterance.pitch = 0.75;
+
+  // Slow, relaxed speaking speed
+  utterance.rate = 0.82;
 
   utterance.onend = () => {
     if (onEnd) onEnd();

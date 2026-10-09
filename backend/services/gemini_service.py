@@ -89,18 +89,8 @@ class GeminiService:
             else "with a sharp, witty, and slightly mocking street-smart tone"
         )
 
-        voice_name = "Puck"
-
-        if persona == Persona.BOLLYWOOD:
-            voice_name = "Charon"  # Deep, masculine, Jackie Shroff style
-        elif persona == Persona.VILLAIN:
-            voice_name = "Charon"  # Cold, authoritative, deep
-        elif persona == Persona.CORPORATE:
-            voice_name = "Charon"  # Passive-aggressive, polished
-        elif persona == Persona.GEN_Z:
-            voice_name = "Puck"    # High-energy, sarcastic youth
-        elif persona == Persona.RAP_BATTLE:
-            voice_name = "Puck"    # Punchy, fast
+        # Always use Charon: deep, authoritative, masculine male voice for every chat
+        voice_name = "Charon"
 
         # Pass ONLY the actual message text to synthesize (never prompt instructions)
         clean_text = text.strip()
