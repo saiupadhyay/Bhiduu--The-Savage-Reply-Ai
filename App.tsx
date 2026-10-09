@@ -26,7 +26,27 @@ const App: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load persistent chat history from Python backend DB on mount
+  useEffect(() => {
+    PERSONAS.forEach(p => {
+      geminiService.getHistory(p.id).then(msgs => {
+        if (msgs && msgs.length > 0) {
+          setHistories(prev => ({
+            ...prev,
+            [p.id]: msgs
+          }));
+        }
+      });
+    });
+  }, []);
+
+  const handleClearChat = async (personaId: Persona) => {
+    await geminiService.clearHistory(personaId);
+    setHistories(prev => ({ ...prev, [personaId]: [] }));
+  };
 
   // Background mood color & effects
   useEffect(() => {
@@ -61,6 +81,35 @@ const App: React.FC = () => {
       scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [histories, isGenerating, activePersona]);
+
+  const toggleListen = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Bhidu, your browser doesn't support voice. Use Chrome!");
+      return;
+    }
+
+    if (isListening) {
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'hi-IN'; // Default to Hindi-Indian accent
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput(prev => prev + ' ' + transcript);
+    };
+
+    recognition.start();
+  };
 
   const handleSend = async () => {
     if (!input.trim() || isGenerating || !activePersona) return;
@@ -178,10 +227,16 @@ const App: React.FC = () => {
             <h2 className="font-bold text-white leading-tight">{config.name}</h2>
             <p className="text-[10px] text-emerald-500 font-black uppercase tracking-widest animate-pulse">Bhidu is active</p>
           </div>
-          <div className="flex gap-4 text-zinc-400 text-sm">
+          <div className="flex gap-4 items-center text-zinc-400 text-sm">
+            <button
+              onClick={() => handleClearChat(personaId)}
+              title="Clear chat history"
+              className="hover:text-red-400 transition-colors text-xs"
+            >
+              <i className="fa-solid fa-trash-can"></i>
+            </button>
             <i className="fa-solid fa-video cursor-not-allowed opacity-10"></i>
             <i className="fa-solid fa-phone cursor-not-allowed opacity-10"></i>
-            <i className="fa-solid fa-ellipsis-vertical"></i>
           </div>
         </header>
 
@@ -220,9 +275,14 @@ const App: React.FC = () => {
         {/* Input */}
         <footer className="absolute bottom-4 left-4 right-4 z-40">
            <div className={`relative glass rounded-full p-1.5 shadow-2xl border-white/10 flex items-center gap-2 transition-all duration-500 ${isMass ? 'ring-2 ring-orange-500/50 shadow-orange-500/20' : ''}`}>
-              <div className="w-10 h-10 rounded-full bg-zinc-800/50 flex items-center justify-center text-zinc-400">
-                <i className={`fa-solid ${isMass ? 'fa-fire text-orange-500 animate-pulse' : 'fa-face-smile'}`}></i>
-              </div>
+              <button
+                onClick={toggleListen}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-zinc-800/50 text-zinc-400'
+                }`}
+              >
+                <i className={`fa-solid ${isListening ? 'fa-microphone-lines' : 'fa-microphone'}`}></i>
+              </button>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -232,7 +292,7 @@ const App: React.FC = () => {
                     handleSend();
                   }
                 }}
-                placeholder={isMass ? "Write something destructive..." : "Bol Bhidu, kya baat hai?"}
+                placeholder={isListening ? "Bhidu is listening..." : (isMass ? "Write something destructive..." : "Bol Bhidu, kya baat hai?")}
                 className="flex-1 bg-transparent border-none py-3 text-sm focus:outline-none resize-none no-scrollbar h-11"
               />
               <button
