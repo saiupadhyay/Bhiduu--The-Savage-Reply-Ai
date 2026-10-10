@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { ChatMessage as ChatMessageType, Persona, PersonaConfig } from '../types';
-import { geminiService, decodeBase64Audio, playAudio, speakWithBrowser } from '../services/geminiService';
+import { geminiService, decodeBase64Audio, playAudio } from '../services/geminiService';
 import { PERSONAS } from '../constants';
 import BurnCard from './BurnCard';
 
@@ -44,21 +44,12 @@ const ChatMessage: React.FC<Props> = ({ message, isLast }) => {
           await playAudio(bytes, message.persona || Persona.BOLLYWOOD, () => setIsSpeaking(false));
         }
       } else {
-        // Fallback to browser speech synthesis if online TTS is unavailable
-        speakWithBrowser(
-          message.content,
-          message.persona || Persona.BOLLYWOOD,
-          message.aggression || 3,
-          () => setIsSpeaking(false)
-        );
+        alert("Bhidu, voice server currently busy hai (API rate limit). Thodi der baad try karo!");
+        setIsSpeaking(false);
       }
     } catch {
-      speakWithBrowser(
-        message.content,
-        message.persona || Persona.BOLLYWOOD,
-        message.aggression || 3,
-        () => setIsSpeaking(false)
-      );
+      alert("Bhidu, voice server currently busy hai. Thodi der baad try karo!");
+      setIsSpeaking(false);
     }
   };
 
