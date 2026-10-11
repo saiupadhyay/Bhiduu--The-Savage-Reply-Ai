@@ -13,9 +13,12 @@ from ..database import get_cached_audio, save_cached_audio
 load_dotenv(Path(__file__).parent.parent / ".env")
 load_dotenv(Path(__file__).parent.parent.parent / ".env.local")
 
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    api_key = os.getenv("API_KEY")
+api_key = (
+    os.getenv("GEMINI_API_KEY") or
+    os.getenv("API_KEY") or
+    os.getenv("VITE_API_KEY") or
+    os.getenv("VITE_OPENAI_API_KEY")
+)
 
 class GeminiService:
     def __init__(self):
@@ -70,7 +73,8 @@ class GeminiService:
         aggression: int = 3
     ) -> Optional[str]:
         # 1. Check SQLite audio cache first (instant response, zero API quota used!)
-        cache_key = f"{persona.value}:{aggression}:{text.strip()}"
+        clean_text = text.strip()
+        cache_key = f"{persona.value}:{aggression}:{clean_text}"
         cached = get_cached_audio(cache_key)
         if cached:
             return cached
@@ -89,38 +93,36 @@ class GeminiService:
             else "with a sharp, witty, and slightly mocking street-smart tone"
         )
 
-        # Select voice artist matching each chatbot character
-        if persona == Persona.CORPORATE:
-            # Slick, decent, polite Bangalore corporate male executive
-            voice_name = "Zephyr"
-        elif persona == Persona.RAP_BATTLE:
-            # Thin, energetic local Mumbai tapori battle rapper
-            voice_name = "Puck"
-        elif persona == Persona.GEN_Z:
-            # Sarcastic, animated South Delhi kid
-            voice_name = "Puck"
+        if persona == Persona.BOLLYWOOD:
+            voice_name = "Fenrir"
+            style_context = f"as a Mumbaikar male with a thick, heavy Bambaiya local accent like Jackie Shroff. Speak {speed}, {intensity}. Start with a short vocal grunt like 'Ae' or 'Sunn'."
         elif persona == Persona.VILLAIN:
-            # Deep, cold, menacing classic Bollywood villain actor
+            voice_name = "Fenrir"
+            style_context = f"as a cold, authoritative Indian male villain. Deep, theatrical Khada accent. Speak {speed} with a calculated, menacing edge."
+        elif persona == Persona.CORPORATE:
             voice_name = "Charon"
-        else:
-            # Bollywood Hero: Legendary Jackie Shroff deep husky baritone
-            voice_name = "Charon"
+            style_context = f"as a Bangalore Indian tech CEO. High-status, crisp Indian English mixed with Hindi, slick and decent corporate tone. Speak {speed}."
+        elif persona == Persona.GEN_Z:
+            voice_name = "Puck"
+            style_context = f"as a sarcastic South Delhi kid. High energy, animated South Delhi teen accent. Speak {speed} with lots of rhythmic sarcasm."
+        else:  # RAP_BATTLE
+            voice_name = "Puck"
+            style_context = f"as a hard-hitting Desi gully rapper. Full tapori, thin voice, in a local rhythmic Mumbai street rap accent. Speak {speed} with sharp, punchy delivery."
 
-        # Pass ONLY the actual message text to synthesize (never prompt instructions)
-        clean_text = text.strip()
+        prompt_text = f'Instruction: You are an Indian man. Speak this in a thick local Indian accent. Tone: {style_context}. Text: "{clean_text}"'
 
         # 2. Multi-model fallback sequence to bypass single-model quota limits
         tts_models = [
+            "gemini-2.5-flash-preview-tts",
             "gemini-3.8-flash-lite-tts",
-            "gemini-3.1-flash-tts-preview",
-            "gemini-2.5-flash-preview-tts"
+            "gemini-3.1-flash-tts-preview"
         ]
 
         for model in tts_models:
             try:
                 response = self.client.models.generate_content(
                     model=model,
-                    contents=clean_text,
+                    contents=prompt_text,
                     config=types.GenerateContentConfig(
                         response_modalities=["AUDIO"],
                         speech_config=types.SpeechConfig(

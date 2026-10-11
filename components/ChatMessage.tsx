@@ -41,7 +41,7 @@ const ChatMessage: React.FC<Props> = ({ message, isLast }) => {
           await audio.play();
         } else {
           const bytes = decodeBase64Audio(audioResult);
-          await playAudio(bytes, message.persona || Persona.BOLLYWOOD, () => setIsSpeaking(false));
+          await playAudio(bytes, () => setIsSpeaking(false));
         }
       } else {
         alert("Bhidu, voice server currently busy hai (API rate limit). Thodi der baad try karo!");

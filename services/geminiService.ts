@@ -2,19 +2,14 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { GenerationParams, Persona, ChatMessage } from "../types";
 import { GET_SYSTEM_PROMPT } from "../constants";
 
+const audioCache = new Map<string, string>();
+
 const getApiKey = (): string => {
   return (
+    import.meta.env.VITE_OPENAI_API_KEY ||
     import.meta.env.VITE_API_KEY ||
     import.meta.env.VITE_GEMINI_API_KEY ||
-    (typeof process !== 'undefined' && (process.env?.GEMINI_API_KEY || process.env?.API_KEY)) ||
-    ''
-  );
-};
-
-const getOpenAiKey = (): string => {
-  return (
-    import.meta.env.VITE_OPENAI_API_KEY ||
-    (typeof process !== 'undefined' && process.env?.VITE_OPENAI_API_KEY) ||
+    (typeof process !== 'undefined' && (process.env?.GEMINI_API_KEY || process.env?.API_KEY || process.env?.VITE_OPENAI_API_KEY)) ||
     ''
   );
 };
@@ -96,49 +91,19 @@ export class BackendApiService {
       }
     }
 
-    return "Bhidu, Netlify par GEMINI_API_KEY (ya VITE_API_KEY) set nahi mili! Please Netlify dashboard mein Environment Variables check karo aur re-deploy karo.";
+    return "Bhidu, Netlify par GEMINI_API_KEY (ya VITE_API_KEY / VITE_OPENAI_API_KEY) set nahi mili! Please Netlify dashboard mein Environment Variables check karo aur re-deploy karo.";
   }
 
   async speakText(text: string, persona: Persona, aggression: number = 3): Promise<string | null> {
     const cleanText = text.trim();
+    const cacheKey = `${persona}:${aggression}:${cleanText}`;
 
-    // 1. If OpenAI API key is present, use studio-quality OpenAI TTS (tts-1) with male voices
-    const openAiKey = getOpenAiKey();
-    if (openAiKey) {
-      try {
-        const voice = (persona === Persona.RAP_BATTLE || persona === Persona.GEN_Z) ? 'echo' : 'onyx';
-        const speed = (persona === Persona.RAP_BATTLE) ? 1.05 : 0.88;
-        const res = await fetch('https://api.openai.com/v1/audio/speech', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAiKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'tts-1',
-            voice,
-            input: cleanText,
-            speed
-          })
-        });
-
-        if (res.ok) {
-          const blob = await res.blob();
-          const reader = new FileReader();
-          return new Promise<string | null>((resolve) => {
-            reader.onloadend = () => {
-              resolve(reader.result as string); // data:audio/mpeg;base64,...
-            };
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(blob);
-          });
-        }
-      } catch (openAiErr) {
-        console.warn("OpenAI TTS failed, trying next provider:", openAiErr);
-      }
+    // 1. Check in-memory audio cache first (instant response, zero API quota)
+    if (audioCache.has(cacheKey)) {
+      return audioCache.get(cacheKey)!;
     }
 
-    // 2. If backend is available, try Python TTS
+    // 2. If backend is available (local dev with Python server), try Python backend TTS
     if (shouldCallBackend()) {
       try {
         const response = await fetch(`${this.baseUrl}/tts`, {
@@ -150,42 +115,83 @@ export class BackendApiService {
         const contentType = response.headers.get("content-type");
         if (response.ok && contentType && contentType.includes("application/json")) {
           const data = await response.json();
-          if (data.audio_base64) return data.audio_base64;
+          if (data.audio_base64) {
+            audioCache.set(cacheKey, data.audio_base64);
+            return data.audio_base64;
+          }
         }
       } catch (backendError) {
-        console.warn("Backend TTS failed, falling back:", backendError);
+        console.warn("Backend TTS failed, falling back to direct GenAI TTS:", backendError);
       }
     }
 
-    // 3. Direct client-side Gemini TTS
+    // 3. Direct client-side Gemini TTS with original character voice & Indian accent instructions
     const apiKey = getApiKey();
     if (apiKey) {
-      try {
-        const ai = new GoogleGenAI({ apiKey });
-        let voiceName = 'Charon';
-        if (persona === Persona.CORPORATE) {
-          voiceName = 'Zephyr'; // Slick, decent corporate tone
-        } else if (persona === Persona.RAP_BATTLE || persona === Persona.GEN_Z) {
-          voiceName = 'Puck'; // Thin, energetic tapori / youth
-        } else {
-          voiceName = 'Charon'; // Bollywood hero / villain deep baritone
-        }
+      const speed = aggression <= 2 
+        ? 'with a confident, medium-paced Indian swagger' 
+        : aggression >= 4 
+          ? 'fast-paced, high energy, and extremely loud' 
+          : 'at a lively, rhythmic medium pace';
 
-        const response = await ai.models.generateContent({
-          model: "gemini-3.8-flash-lite-tts",
-          contents: [{ parts: [{ text: cleanText }] }],
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName },
+      const intensity = aggression >= 4 
+        ? 'with heavy vocal fry and aggressive dominance' 
+        : 'with a sharp, witty, and slightly mocking street-smart tone';
+
+      let voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr' = 'Puck';
+      let styleContext = '';
+
+      switch (persona) {
+        case Persona.BOLLYWOOD:
+          voiceName = 'Fenrir';
+          styleContext = `as a Mumbaikar male with a thick, heavy "Bambaiya" local accent. Use a deep, gravelly voice like Jackie Shroff. Speak ${speed}, ${intensity}. Start with a short vocal grunt like "Ae" or "Sunn".`;
+          break;
+        case Persona.VILLAIN:
+          voiceName = 'Fenrir';
+          styleContext = `as a cold, authoritative Indian male villain. Use a deep, theatrical 'Khada' accent. Speak ${speed} with a calculated, menacing edge.`;
+          break;
+        case Persona.CORPORATE:
+          voiceName = 'Charon';
+          styleContext = `as a Bangalore Indian tech CEO. High-status, crisp Indian English mixed with Hindi, slick and decent corporate tone. Speak ${speed}.`;
+          break;
+        case Persona.GEN_Z:
+          voiceName = 'Puck';
+          styleContext = `as a sarcastic South Delhi kid. High energy, animated South Delhi teen accent. Speak ${speed} with lots of rhythmic sarcasm.`;
+          break;
+        case Persona.RAP_BATTLE:
+          voiceName = 'Puck';
+          styleContext = `as a hard-hitting Desi gully rapper. Full tapori, thin voice, in a local rhythmic Mumbai street rap accent. Speak ${speed} with sharp, punchy delivery.`;
+          break;
+      }
+
+      const promptText = `Instruction: You are an Indian man. Speak this in a thick local Indian accent. Tone: ${styleContext}. Text: "${cleanText}"`;
+      const ttsModels = ["gemini-2.5-flash-preview-tts", "gemini-3.8-flash-lite-tts", "gemini-3.1-flash-tts-preview"];
+
+      for (const model of ttsModels) {
+        try {
+          const ai = new GoogleGenAI({ apiKey });
+          const response = await ai.models.generateContent({
+            model,
+            contents: [{ parts: [{ text: promptText }] }],
+            config: {
+              responseModalities: [Modality.AUDIO],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName },
+                },
               },
             },
-          },
-        });
-        return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-      } catch (ttsErr) {
-        console.warn("Client GenAI TTS unavailable, will fall back to browser speech:", ttsErr);
+          });
+
+          const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+          if (base64Audio) {
+            audioCache.set(cacheKey, base64Audio);
+            return base64Audio;
+          }
+        } catch (ttsErr) {
+          console.warn(`Gemini TTS model ${model} temporarily unavailable:`, ttsErr);
+          continue;
+        }
       }
     }
 
@@ -301,7 +307,6 @@ export const decodeBase64Audio = (base64: string) => {
 
 export const playAudio = async (
   bytes: Uint8Array,
-  persona?: Persona,
   onEnd?: () => void
 ) => {
   const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
@@ -314,95 +319,10 @@ export const playAudio = async (
   }
   const source = ctx.createBufferSource();
   source.buffer = buffer;
-
-  // Custom playback speed & pitch tailored to each character:
-  // - Corporate: 0.94 (slick, decent, measured Bangalore tech pace)
-  // - Rap Battle: 1.15 (thin, energetic Mumbai tapori flow)
-  // - Gen-Z: 1.08 (fast, snarky South Delhi teen)
-  // - Villain: 0.82 (chilling, slow theatrical Bollywood villain)
-  // - Bollywood Hero: 0.88 (slow, relaxed Jackie Shroff swagger)
-  let rate = 0.88;
-  if (persona === Persona.CORPORATE) {
-    rate = 0.94;
-  } else if (persona === Persona.RAP_BATTLE) {
-    rate = 1.15;
-  } else if (persona === Persona.GEN_Z) {
-    rate = 1.08;
-  } else if (persona === Persona.VILLAIN) {
-    rate = 0.82;
-  }
-  source.playbackRate.value = rate;
-
   source.connect(ctx.destination);
   source.onended = () => {
     if (onEnd) onEnd();
     ctx.close();
   };
   source.start();
-};
-
-export const speakWithBrowser = (
-  text: string,
-  persona?: Persona,
-  aggression: number = 3,
-  onEnd?: () => void
-) => {
-  if (!('speechSynthesis' in window)) {
-    if (onEnd) onEnd();
-    return;
-  }
-
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-
-  const voices = window.speechSynthesis.getVoices();
-  const isCorporateOrGenZ = persona === Persona.CORPORATE || persona === Persona.GEN_Z;
-
-  // For Corporate/South Delhi, prefer English (India) or clean Hindi
-  // For Bollywood/Villain/Rap Battle, prefer Hindi (India)
-  const preferredVoice = isCorporateOrGenZ
-    ? voices.find(v => v.lang === 'en-IN' && !v.name.toLowerCase().includes('female')) ||
-      voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female')) ||
-      voices.find(v => v.lang === 'en-IN') ||
-      voices.find(v => v.lang === 'hi-IN')
-    : voices.find(v => (v.lang === 'hi-IN' || v.lang.startsWith('hi')) && !v.name.toLowerCase().includes('female')) ||
-      voices.find(v => v.lang === 'hi-IN') ||
-      voices.find(v => v.lang === 'en-IN');
-
-  if (preferredVoice) {
-    utterance.voice = preferredVoice;
-  }
-  utterance.lang = preferredVoice ? preferredVoice.lang : (isCorporateOrGenZ ? 'en-IN' : 'hi-IN');
-
-  // Pitch and speed tailored to each character:
-  if (persona === Persona.CORPORATE) {
-    // Bangalore tech executive: slick, decent, mid-tone, steady pace
-    utterance.pitch = 0.95;
-    utterance.rate = 0.90;
-  } else if (persona === Persona.RAP_BATTLE) {
-    // Mumbai gully rap battle: full tapori, thin voice, rapid delivery
-    utterance.pitch = 1.25;
-    utterance.rate = 1.18;
-  } else if (persona === Persona.GEN_Z) {
-    // South Delhi kid: snarky, high-energy, animated teen accent
-    utterance.pitch = 1.15;
-    utterance.rate = 1.08;
-  } else if (persona === Persona.VILLAIN) {
-    // Bollywood villain actor: theatrical, deep menacing bass, slow chilling delivery
-    utterance.pitch = 0.65;
-    utterance.rate = 0.80;
-  } else {
-    // Bollywood Hero (Jackie Shroff): deep husky baritone, slow Bambaiya swagger
-    utterance.pitch = 0.72;
-    utterance.rate = 0.85;
-  }
-
-  utterance.onend = () => {
-    if (onEnd) onEnd();
-  };
-  utterance.onerror = () => {
-    if (onEnd) onEnd();
-  };
-
-  window.speechSynthesis.speak(utterance);
 };
